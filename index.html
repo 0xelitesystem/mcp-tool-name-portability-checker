@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>MCP Tool Name Portability Checker</title>
+<meta name="description" content="Paste an MCP server's tools/list result or a list of tool names and see, name by name, which documented consumer rule accepts it: the MCP spec, the Anthropic Messages API, OpenAI Chat Completions and the Gemini API. Flags prefix length overruns and rename collisions, and builds a deterministic, collision-free rename map. Runs entirely in your browser.">
+<link rel="canonical" href="https://0xelitesystem.github.io/mcp-tool-name-portability-checker/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MCP Tool Name Portability Checker">
+<meta property="og:description" content="Which MCP tool names survive the Anthropic, OpenAI and Gemini name rules, which collide after renaming, and a deterministic rename map that fits every rule you pick.">
+<meta property="og:url" content="https://0xelitesystem.github.io/mcp-tool-name-portability-checker/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MCP Tool Name Portability Checker","applicationCategory":"DeveloperApplication","operatingSystem":"Any (browser)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://0xelitesystem.github.io/mcp-tool-name-portability-checker/","author":{"@type":"Person","name":"0xelitesystem","url":"https://elitesystem.ai"}}
+</script>
+<script>
+/* Apply a remembered light or dark choice before first paint. */
+(function () {
+  var KEY = "theme";
+  try {
+    var t = localStorage.getItem(KEY);
+    if (t === "dark" || t === "light") { document.documentElement.setAttribute("data-theme", t); }
+  } catch (e) {}
+})();
+</script>
+<style>
+/* Palette verified by math (WCAG 2.x relative luminance), every text token
+   against every background token, both themes. Zero pairs below 4.5:1.
+   LIGHT, on --bg #e8ebef / --panel #ffffff / --code #dcdfe4
+     --ink       #0a0a0a  16.56  19.80  14.82
+     --ink-soft  #3d444d   8.24   9.85   7.37
+     --accent    #2d6b00   5.46   6.53   4.89
+     --ok        #1a6127   6.31   7.55   5.65
+     --warn      #8a4d00   5.59   6.68   5.00
+     --err       #a82d14   5.76   6.88   5.15
+     --info      #0f4f7a   7.26   8.68   6.50
+   DARK, on --bg #0a0a0a / --panel #141414 / --code #1c1c1c
+     --ink       #e8ebef  16.56  15.41  14.25
+     --ink-soft  #b9c0c9  10.79  10.04   9.29
+     --accent    #d4ff3a  17.12  15.94  14.74
+     --ok        #7ee08a  12.18  11.33  10.48
+     --warn      #f0c674  12.29  11.44  10.58
+     --err       #ff9b8a   9.72   9.04   8.36
+     --info      #8fd3ff  12.19  11.34  10.49
+   Primary button: --bg text on --accent fill, 5.46:1 light, 17.12:1 dark.
+   --muted is a BORDER token only. It is never a text colour. */
+:root {
+  color-scheme: light;
+  --bg: #e8ebef; --panel: #ffffff; --code: #dcdfe4;
+  --ink: #0a0a0a; --ink-soft: #3d444d; --accent: #2d6b00;
+  --ok: #1a6127; --warn: #8a4d00; --err: #a82d14; --info: #0f4f7a;
+  --muted: #5b636e;
+  --mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0a0a0a; --panel: #141414; --code: #1c1c1c;
+    --ink: #e8ebef; --ink-soft: #b9c0c9; --accent: #d4ff3a;
+    --ok: #7ee08a; --warn: #f0c674; --err: #ff9b8a; --info: #8fd3ff;
+    --muted: #8f98a3;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0a0a; --panel: #141414; --code: #1c1c1c;
+  --ink: #e8ebef; --ink-soft: #b9c0c9; --accent: #d4ff3a;
+  --ok: #7ee08a; --warn: #f0c674; --err: #ff9b8a; --info: #8fd3ff;
+  --muted: #8f98a3;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; padding: 0 1rem 4rem; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+.wrap { max-width: 90rem; margin: 0 auto; }
+header.top { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-start; justify-content: space-between; padding: 2rem 0 1rem; border-bottom: 1px solid var(--muted); }
+header.top .titles { flex: 1 1 30rem; min-width: 0; }
+h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 .35rem; }
+h2 { font-size: 1.25rem; margin: 2.2rem 0 .6rem; }
+h3 { font-size: 1.05rem; margin: 1.2rem 0 .4rem; }
+p { margin: .6rem 0; overflow-wrap: anywhere; }
+li, .quote { overflow-wrap: anywhere; }
+.lede { color: var(--ink-soft); margin: 0; }
+.note { color: var(--ink-soft); font-size: .92rem; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus-visible, [tabindex="0"]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: .92em; overflow-wrap: anywhere; }
+.panel { background: var(--panel); border: 1px solid var(--muted); border-radius: 6px; padding: 1rem; margin: 1rem 0; }
+label { display: block; font-weight: 600; margin: .4rem 0 .25rem; }
+label .hint { font-weight: 400; color: var(--ink-soft); font-size: .88rem; }
+label.inline { display: inline-flex; gap: .45rem; align-items: center; margin: 0; }
+textarea, select { font-family: var(--mono); font-size: .9rem; color: var(--ink); background: var(--code); border: 1px solid var(--muted); border-radius: 4px; padding: .5rem; }
+textarea { width: 100%; min-height: 13rem; resize: vertical; white-space: pre; overflow-x: auto; }
+select { font-family: var(--sans); max-width: 100%; }
+input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+button { font: inherit; font-weight: 600; color: var(--ink); background: var(--code); border: 1px solid var(--muted); border-radius: 4px; padding: .45rem .9rem; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; margin-top: .8rem; }
+.status { font-weight: 600; }
+.badge { display: inline-block; font-family: var(--mono); font-size: .74rem; font-weight: 700; border: 1px solid currentColor; border-radius: 3px; padding: 0 .35rem; margin: 0 .3rem .15rem 0; white-space: nowrap; }
+.b-ok { color: var(--ok); } .b-err { color: var(--err); } .b-warn { color: var(--warn); } .b-info { color: var(--info); } .b-soft { color: var(--ink-soft); }
+.tablewrap { overflow-x: auto; position: relative; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--muted); vertical-align: top; }
+th { color: var(--ink-soft); font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+#out td { min-width: 11rem; }
+#out td.inp { min-width: 13rem; }
+td .val { font-family: var(--mono); font-size: .8rem; overflow-wrap: anywhere; display: block; }
+td .why { color: var(--ink-soft); font-size: .8rem; display: block; margin-top: .2rem; }
+td pre.fields { font-family: var(--mono); font-size: .74rem; margin: .3rem 0 0; white-space: pre-wrap; color: var(--ink-soft); }
+ul.rownotes { margin: .3rem 0 0; padding-left: 1rem; font-size: .8rem; color: var(--ink-soft); }
+td.res { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+td.res.pass { color: var(--ok); } td.res.fail { color: var(--err); }
+ul.rules { padding-left: 1.1rem; font-size: .92rem; }
+ul.rules li { margin: .4rem 0; }
+.quote { display: block; color: var(--ink-soft); border-left: 2px solid var(--muted); padding-left: .55rem; margin-top: .15rem; }
+details { margin: .4rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--muted); color: var(--ink-soft); font-size: .9rem; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+<style>
+input[type="text"] { font-family: var(--mono); font-size: .9rem; color: var(--ink); background: var(--code); border: 1px solid var(--muted); border-radius: 4px; padding: .35rem .5rem; width: 18rem; max-width: 100%; }
+fieldset { border: 1px solid var(--muted); border-radius: 6px; padding: .6rem .9rem; margin: .8rem 0; }
+legend { font-weight: 700; padding: 0 .3rem; }
+.prof { margin: .45rem 0; }
+.prof .meta { color: var(--ink-soft); font-size: .86rem; display: block; margin-left: 1.6rem; }
+.prof details { margin-left: 1.6rem; font-size: .86rem; }
+td.ok { color: var(--ok); font-family: var(--mono); font-weight: 700; }
+td.bad { color: var(--err); font-family: var(--mono); font-weight: 700; }
+td.ok .why, td.bad .why { font-family: var(--sans); font-weight: 400; color: var(--ink-soft); }
+#out td { min-width: 0; }
+#out td.nm { font-family: var(--mono); overflow-wrap: anywhere; min-width: 10rem; }
+#out td.ok, #out td.bad { min-width: 7rem; }
+#out td.fl { min-width: 17rem; }
+pre.json { font-family: var(--mono); font-size: .8rem; background: var(--code); color: var(--ink); border: 1px solid var(--muted); border-radius: 4px; padding: .5rem; overflow-x: auto; white-space: pre; max-height: 22rem; overflow-y: auto; }
+.errbox { border-left: 4px solid var(--err); padding: .2rem 0 .2rem .8rem; margin: .6rem 0; }
+.infobox { border-left: 4px solid var(--info); padding: .2rem 0 .2rem .8rem; margin: .6rem 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="titles">
+    <h1>MCP Tool Name Portability Checker</h1>
+    <p class="lede">Paste an MCP server's tools/list result, or a plain list of tool names, and see name by name which documented consumer rule accepts it as is: the MCP spec, the Anthropic Messages API, OpenAI Chat Completions and the Gemini API. It flags names a client prefix pushes over a length limit and names that collide once dots, colons and spaces are replaced, and it builds a deterministic, collision-free rename map. Everything runs in your browser.</p>
+  </div>
+  <button type="button" id="theme-toggle">Use dark theme</button>
+</header>
+
+<main>
+<section aria-labelledby="in-h">
+  <h2 id="in-h">Input</h2>
+  <div class="panel">
+    <label for="in">tools/list result, tool objects, or names <span class="hint">(a JSON-RPC response, the result object, an array of tools, an array of strings, or one name per line)</span></label>
+    <textarea id="in" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <div class="row">
+      <button type="button" class="primary" id="run">Check names</button>
+      <button type="button" id="example">Load example</button>
+      <button type="button" id="clear">Clear</button>
+      <button type="button" id="aslines" hidden>Treat as plain lines</button>
+    </div>
+    <p class="note">Only each tool's <code>name</code> is read. Descriptions are never displayed; scanning them for injected instructions is a different job (https://github.com/0xelitesystem/mcp-tool-poisoning-scanner).</p>
+
+    <fieldset>
+      <legend>Rules to check</legend>
+      <div id="profiles"></div>
+      <p class="note" id="limit"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Client prefix (optional)</legend>
+      <div class="row">
+        <label class="inline" for="tpl">Prefix template</label>
+        <input type="text" id="tpl" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="row">
+        <label class="inline" for="server">Server key</label>
+        <input type="text" id="server" spellcheck="false" autocomplete="off">
+        <label class="inline" for="plugin">Plugin name</label>
+        <input type="text" id="plugin" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="row">
+        <button type="button" id="p-cc">Claude Code style: mcp__&lt;server&gt;__</button>
+        <button type="button" id="p-plugin">Claude Code plugin style</button>
+        <button type="button" id="p-none">No prefix</button>
+      </div>
+      <p class="note">Claude Code's hooks documentation says "MCP tools follow the naming pattern mcp__&lt;server&gt;__&lt;tool&gt;". Its MCP documentation gives the plugin form as mcp__plugin_&lt;plugin-name&gt;_&lt;server-name&gt;__&lt;tool-name&gt;, "where any character outside A-Z, a-z, 0-9, _, and - is replaced with _". The rename map below uses that same replacement rule. This page states no Claude Code length limit and no renaming behaviour for servers outside plugins, because the documentation read states neither. Sources: https://code.claude.com/docs/en/hooks and https://code.claude.com/docs/en/mcp</p>
+      <p class="note" id="prefixnote"></p>
+    </fieldset>
+    <p class="status" id="status" role="status" aria-live="polite">Paste a tools/list result or one name per line.</p>
+  </div>
+</section>
+
+<section aria-labelledby="out-h">
+  <h2 id="out-h">Results</h2>
+  <div id="msgs"></div>
+  <div class="panel">
+    <div class="tablewrap" tabindex="0" role="region" aria-label="Results, one row per tool name">
+      <table id="out"><caption class="visually-hidden">Each name against each selected rule</caption><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="map-h">
+  <h2 id="map-h">Rename map</h2>
+  <div class="panel">
+    <p class="note">A gateway can apply this map to tools/list and reverse it on tools/call. The reverse lookup is needed because the server still expects its original name. This page does not rewrite anyone's traffic. The algorithm: names that already use only A-Z a-z 0-9 _ - and fit are kept, in input order; every other name has each code point outside that set replaced with "_", is cut to fit with an underscore and six hex digits of the FNV-1a 32-bit hash of the original UTF-8 name when too long, and gets "_2", "_3" and so on until it is unique.</p>
+    <div class="row">
+      <button type="button" id="copy-obj">Copy as a JSON object</button>
+      <button type="button" id="copy-arr">Copy as a JSON array of {from, to}</button>
+    </div>
+    <p class="status" id="copystatus" role="status" aria-live="polite"></p>
+    <pre class="json" id="mapjson" tabindex="0" aria-label="Rename map as JSON"></pre>
+  </div>
+</section>
+
+<section aria-labelledby="rules-h">
+  <h2 id="rules-h">The rules, with sources</h2>
+  <div class="panel">
+    <ul class="rules">
+      <li><strong>MCP spec, 2025-11-25.</strong> Advisory (SHOULD).
+        <span class="quote">Tool names SHOULD be between 1 and 128 characters in length (inclusive).</span>
+        <span class="quote">The following SHOULD be the only allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits (0-9), underscore (_), hyphen (-), and dot (.)</span>
+        <span class="quote">Example valid tool names: getUser DATA_EXPORT_v2 admin.tools.list</span>
+        The same text and examples are in the 2026-07-28 revision, which adds that clients or proxies that aggregate tools from several servers "SHOULD implement a disambiguation strategy such as prefixing tool names with a server identifier", and that the serverInfo name "SHOULD NOT be relied upon for disambiguation". Source: https://modelcontextprotocol.io/specification/2025-11-25/server/tools and https://modelcontextprotocol.io/specification/2026-07-28/server/tools</li>
+      <li><strong>Anthropic Messages API.</strong> Documented.
+        <span class="quote">The name of the tool. Must match the regex ^[a-zA-Z0-9_-]{1,128}$.</span>
+        Source: https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools</li>
+      <li><strong>OpenAI Chat Completions, tools[].function.name.</strong> Documented.
+        <span class="quote">The name of the function to be called. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 64.</span>
+        The reference states no minimum, so an empty name is treated as an input error under every rule. The Responses API reference describes the function name only as "The name of the function to call." with no character rule, so this page applies the Chat Completions text and says nothing about how the Responses API behaves. Sources: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create and https://developers.openai.com/api/reference/resources/responses/methods/create</li>
+      <li><strong>Gemini API, FunctionDeclaration.name.</strong> Documented.
+        <span class="quote">Required. The name of the function. Must be a-z, A-Z, 0-9, or contain underscores, colons, dots, and dashes, with a maximum length of 128.</span>
+        The same reference describes FunctionCall.name and FunctionResponse.name differently:
+        <span class="quote">Required. The name of the function to call. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 128.</span>
+        This page does not say which one the service enforces. Source: https://ai.google.dev/api/generate-content</li>
+      <li><strong>Observed in public bug reports (not a published rule).</strong> The pattern <code>^[a-zA-Z0-9_-]{1,64}$</code> appears in error strings quoted in public issues: anthropics/claude-code#858 (filed 2025-04-23) quotes <code>tools.26.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,64}$'</code>, and anthropics/claude-code#68850 (filed 2026-06-16) quotes <code>tools.N.FrontendRemoteMcpToolDefinition.name: String should match pattern '^[a-zA-Z0-9_-]{1,64}$'</code> from Claude Desktop. This page does not say whether the pattern is still current.</li>
+    </ul>
+  </div>
+  <p>Independent and unaffiliated with Anthropic, OpenAI, Google or the MCP project. Rules are quoted from their public documentation.</p>
+</section>
+
+<section aria-labelledby="st-h">
+  <h2 id="st-h">Self test</h2>
+  <p>Runs on load and on demand (also with <code>?selftest</code> in the address), against the same code that fills the table: the FNV-1a vectors, the three worked examples exactly, every rule against the edge-length vector, all five input shapes, duplicates, case-only pairs, astral characters, prefixes, a 2,000-name run, and a positive control written to fail.</p>
+  <div class="row"><button type="button" id="selftest">Run self test</button></div>
+  <p class="status" id="st-summary" role="status" aria-live="polite">Not run yet.</p>
+  <details>
+    <summary>Show every check</summary>
+    <div class="tablewrap" tabindex="0" role="region" aria-label="Self test results">
+      <table id="st-table"><caption class="visually-hidden">Self test results</caption>
+        <thead><tr><th scope="col">Check</th><th scope="col">Expected</th><th scope="col">Got</th><th scope="col">Result</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </details>
+</section>
+</main>
+
+<footer>
+  <p>MIT licensed. Copyright (c) 2026 0xelitesystem. Source: https://github.com/0xelitesystem/mcp-tool-name-portability-checker</p>
+  <p>Independent tool, not affiliated with Anthropic, OpenAI, Google or the MCP project. Nothing you paste leaves this page.</p>
+  <p><a href="https://elitesystem.ai">elitesystem.ai</a></p>
+</footer>
+
+</div>
+
+<script>
+/* ==== CORE START ==== */
+var MN = (function () {
+"use strict";
+
+var PROFILES = [
+  { id: "mcp", name: "MCP spec (2025-11-25, unchanged in 2026-07-28)", level: "SHOULD", cls: /^[A-Za-z0-9_.-]$/, set: "A-Z a-z 0-9 _ - .", max: 128 },
+  { id: "anthropic", name: "Anthropic Messages API", level: "documented", cls: /^[A-Za-z0-9_-]$/, set: "A-Z a-z 0-9 _ -", max: 128 },
+  { id: "openai", name: "OpenAI Chat Completions function.name", level: "documented", cls: /^[A-Za-z0-9_-]$/, set: "A-Z a-z 0-9 _ -", max: 64 },
+  { id: "gemini", name: "Gemini FunctionDeclaration.name", level: "documented", cls: /^[A-Za-z0-9_:.-]$/, set: "A-Z a-z 0-9 _ : . -", max: 128 },
+  { id: "observed64", name: "Observed 64-character pattern (public bug reports)", level: "observed", cls: /^[A-Za-z0-9_-]$/, set: "A-Z a-z 0-9 _ -", max: 64 }
+];
+function profile(id) { return PROFILES.filter(function (p) { return p.id === id; })[0]; }
+function cps(s) { var a = []; for (var ch of s) { a.push(ch); } return a; }
+function cpLen(s) { return cps(s).length; }
+function showChar(ch) {
+  var c = ch.codePointAt(0);
+  if (c === 32) { return "a space"; }
+  if (c > 32 && c < 127) { return "\"" + ch + "\""; }
+  return "U+" + c.toString(16).toUpperCase().padStart(4, "0");
+}
+function visible(s) {
+  var out = "";
+  for (var ch of s) {
+    var c = ch.codePointAt(0);
+    if (c === 32) { out += "·"; }
+    else if (c < 32 || c > 126) { out += "⟨U+" + c.toString(16).toUpperCase().padStart(4, "0") + "⟩"; }
+    else { out += ch; }
+  }
+  return out;
+}
+/* Check one name against one profile. Returns { pass, reasons }. */
+function check(name, p) {
+  var reasons = [], chars = cps(name);
+  if (chars.length === 0) { return { pass: false, reasons: ["empty"] }; }
+  for (var i = 0; i < chars.length; i++) {
+    if (!p.cls.test(chars[i])) {
+      reasons.push("contains " + showChar(chars[i]) + " at position " + (i + 1));
+      break;
+    }
+  }
+  if (chars.length > p.max) { reasons.push("length " + chars.length + " > " + p.max); }
+  return { pass: reasons.length === 0, reasons: reasons };
+}
+function sanitize(name) {
+  var out = "";
+  for (var ch of name) { out += /^[A-Za-z0-9_-]$/.test(ch) ? ch : "_"; }
+  return out;
+}
+function fnv1a(s) {
+  var bytes = new TextEncoder().encode(s), h = 0x811c9dc5;
+  for (var i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+
+/* Parse the pasted text into names. */
+function parseInput(text) {
+  var res = { names: [], errors: [], info: [], mode: "" , jsonError: null };
+  var t = String(text);
+  if (!t.trim()) { res.empty = true; return res; }
+  var lead = t.trim().charAt(0);
+  if (lead === "{" || lead === "[") {
+    var doc;
+    try { doc = JSON.parse(t); }
+    catch (e) { res.jsonError = "This looks like JSON but does not parse: " + e.message; return res; }
+    var pages = [];
+    var isObj = function (v) { return v !== null && typeof v === "object" && !Array.isArray(v); };
+    if (isObj(doc) && isObj(doc.result) && Array.isArray(doc.result.tools)) { pages.push(doc.result); res.mode = "JSON-RPC tools/list response"; }
+    else if (isObj(doc) && Array.isArray(doc.tools)) { pages.push(doc); res.mode = "tools/list result object"; }
+    else if (Array.isArray(doc) && doc.length && doc.every(function (x) { return typeof x === "string"; })) {
+      res.mode = "JSON array of names";
+      doc.forEach(function (s) { res.names.push(s); });
+      return res;
+    }
+    else if (Array.isArray(doc) && doc.length && doc.every(function (x) { return isObj(x) && (Array.isArray(x.tools) || (isObj(x.result) && Array.isArray(x.result.tools))); })) {
+      doc.forEach(function (x) { pages.push(isObj(x.result) ? x.result : x); });
+      res.mode = doc.length + " concatenated tools/list pages";
+    }
+    else if (Array.isArray(doc)) { pages.push({ tools: doc }); res.mode = "JSON array of tool objects"; }
+    else { res.jsonError = "JSON parsed, but it is not a tools/list response, a result object, an array of tools or an array of names."; return res; }
+    var idx = 0;
+    pages.forEach(function (pg, pi) {
+      /* Only the last pasted page decides: earlier pages of a complete set carry nextCursor by design. */
+      if (pi === pages.length - 1 && pg.nextCursor !== undefined && pg.nextCursor !== null) { res.info.push("This is one page; paste every page to check the full set. (A tools/list result carries nextCursor when more pages exist.)"); }
+      pg.tools.forEach(function (tool) {
+        if (!isObj(tool) || typeof tool.name !== "string") { res.errors.push("Tool at index " + idx + " has no string \"name\"; skipped."); }
+        else { res.names.push(tool.name); }
+        idx++;
+      });
+    });
+    return res;
+  }
+  res.mode = "plain lines";
+  t.split(/\r?\n/).forEach(function (l) { var s = l.trim(); if (s) { res.names.push(s); } });
+  return res;
+}
+
+function resolvePrefix(tpl, server, plugin) {
+  return String(tpl || "").split("{server}").join(server || "").split("{plugin}").join(plugin || "");
+}
+
+/* Analyse names under the selected profiles and an optional prefix. */
+function analyse(names, opts) {
+  var sel = (opts.profiles || PROFILES.map(function (p) { return p.id; })).map(profile).filter(Boolean);
+  var prefix = opts.prefix || "";
+  var out = { rows: [], map: [], errors: [], prefixReport: [], limit: null, budget: null, summary: null };
+  if (!sel.length) { out.errors.push("Select at least one rule."); return out; }
+  out.limit = Math.min.apply(null, sel.map(function (p) { return p.max; }));
+  var plen = cpLen(prefix);
+  if (prefix) {
+    sel.forEach(function (p) {
+      var bad = cps(prefix).filter(function (ch) { return !p.cls.test(ch); });
+      if (bad.length) { out.prefixReport.push(p.name + ": the prefix itself contains " + bad.map(showChar).filter(function (x, i, a) { return a.indexOf(x) === i; }).join(", ")); }
+    });
+  }
+  /* collisions after sanitizing, and case-only duplicates */
+  /* Null-prototype maps, so names such as "constructor" or "__proto__" are plain keys. */
+  var bySan = Object.create(null), byLower = Object.create(null), seen = Object.create(null);
+  var others = function (group, n) { var o = group.filter(function (x) { return x !== n; }); return o.slice(0, 5).join(", ") + (o.length > 5 ? " and " + (o.length - 5) + " more" : ""); };
+  names.forEach(function (n) {
+    var s = sanitize(n);
+    (bySan[s] = bySan[s] || []).indexOf(n) < 0 && bySan[s].push(n);
+    var l = n.toLowerCase();
+    (byLower[l] = byLower[l] || []).indexOf(n) < 0 && byLower[l].push(n);
+  });
+  names.forEach(function (n, i) {
+    var exposed = prefix + n;
+    var row = { i: i + 1, name: n, len: cpLen(n), prefixedLen: prefix ? cpLen(exposed) : null, results: {}, flags: [], to: null };
+    sel.forEach(function (p) { row.results[p.id] = check(exposed, p); });
+    row.portable = sel.every(function (p) { return row.results[p.id].pass; });
+    if (!n.length) { row.flags.push({ kind: "ERROR", text: "Empty name: an input error for every rule (OpenAI's reference states no minimum)." }); }
+    if (n !== n.trim()) { row.flags.push({ kind: "WARN", text: "Leading or trailing whitespace. The name is shown exactly as the server sent it." }); }
+    if (seen[n] !== undefined) { row.flags.push({ kind: "DUPLICATE", text: "Same as name " + (seen[n] + 1) + ". MCP: \"Tool names SHOULD be unique within a server.\"" }); }
+    else { seen[n] = i; }
+    var lowerGroup = byLower[n.toLowerCase()];
+    if (lowerGroup.length > 1) { row.flags.push({ kind: "CASE-ONLY", text: "INFO: differs only in case from " + others(lowerGroup, n) + ". MCP: \"Tool names SHOULD be considered case-sensitive.\"" }); }
+    var sanGroup = bySan[sanitize(n)];
+    if (sanGroup.length > 1 && sanitize(n) !== n) { row.flags.push({ kind: "COLLIDES-AFTER-RENAME", text: "Becomes " + sanitize(n) + " after replacing characters, the same as " + others(sanGroup, n) + "." }); }
+    out.rows.push(row);
+  });
+  var budget = out.limit - plen;
+  out.budget = budget;
+  if (budget < 8) {
+    out.errors.push("The prefix leaves fewer than 8 characters (limit " + out.limit + " minus prefix length " + plen + " = " + budget + "), so no rename map is built.");
+  } else {
+    var reserved = new Set(), done = new Array(names.length);
+    names.forEach(function (n, i) {
+      if (n.length && sanitize(n) === n && cpLen(n) <= budget && !reserved.has(n)) { reserved.add(n); done[i] = n; }
+    });
+    names.forEach(function (n, i) {
+      if (done[i] !== undefined || !n.length) { return; }
+      var base = sanitize(n);
+      if (base.length > budget) { base = base.slice(0, budget - 7) + "_" + fnv1a(n).slice(0, 6); }
+      var cand = base, k = 2;
+      while (reserved.has(cand)) { var suf = "_" + k; cand = base.slice(0, budget - suf.length) + suf; k++; }
+      reserved.add(cand); done[i] = cand;
+    });
+    names.forEach(function (n, i) {
+      var to = done[i];
+      out.rows[i].to = to === undefined ? null : to;
+      if (to !== undefined && /^[_-]*$/.test(to)) { out.rows[i].flags.push({ kind: "WARN", text: "The renamed name carries no meaning; choose one by hand." }); }
+      if (to !== undefined) { out.map.push({ from: n, to: to }); }
+    });
+  }
+  var collisions = out.rows.filter(function (r) { return r.flags.some(function (f) { return f.kind === "COLLIDES-AFTER-RENAME" || f.kind === "DUPLICATE"; }); }).length;
+  out.summary = { names: names.length, portable: out.rows.filter(function (r) { return r.portable; }).length, rename: out.map.filter(function (m) { return m.from !== m.to; }).length, collisions: collisions };
+  return out;
+}
+function mapObject(map) { var o = Object.create(null); map.forEach(function (m) { if (!(m.from in o)) { o[m.from] = m.to; } }); return o; }
+
+var EXAMPLE = ["getUser", "DATA_EXPORT_v2", "admin.tools.list", "admin_tools_list", "notes:search", "list open tickets", "a".repeat(70), "café_lookup"];
+
+function selfTest() {
+  var out = [];
+  function ck(name, want, got) { out.push({ name: name, want: String(want), got: String(got), pass: String(want) === String(got) }); }
+  ck("FNV-1a 32 of the empty string", "811c9dc5", fnv1a(""));
+  ck("FNV-1a 32 of \"a\"", "e40c292c", fnv1a("a"));
+  ck("FNV-1a 32 of \"foobar\"", "bf9cf968", fnv1a("foobar"));
+  ck("FNV-1a 32 of 70 x \"a\"", "5904740b", fnv1a("a".repeat(70)));
+  ck("FNV-1a 32 of 55 x \"x\"", "5aa1719f", fnv1a("x".repeat(55)));
+  var e1 = analyse(EXAMPLE, {});
+  var m1 = e1.map.map(function (m) { return m.to; });
+  ck("Example 1: strictest limit with all five rules", 64, e1.limit);
+  ck("Example 1: rename map", ["getUser", "DATA_EXPORT_v2", "admin_tools_list_2", "admin_tools_list", "notes_search", "list_open_tickets", "a".repeat(57) + "_590474", "caf__lookup"].join(" | "), m1.join(" | "));
+  ck("Example 1: the 70-character name is renamed to 64 characters", 64, m1[6].length);
+  var row = function (r, id) { return r.results[id].pass ? "PASS" : "FAIL"; };
+  var ad = e1.rows[2];
+  ck("admin.tools.list per rule (MCP, Anthropic, OpenAI, Gemini, observed)", "PASS FAIL FAIL PASS FAIL", ["mcp", "anthropic", "openai", "gemini", "observed64"].map(function (id) { return row(ad, id); }).join(" "));
+  ck("admin.tools.list reason under Anthropic", "contains \".\" at position 6", ad.results.anthropic.reasons[0]);
+  ck("admin.tools.list flagged COLLIDES-AFTER-RENAME with admin_tools_list", "true", String(ad.flags.some(function (f) { return f.kind === "COLLIDES-AFTER-RENAME" && f.text.indexOf("admin_tools_list") >= 0; })));
+  var ns = e1.rows[4];
+  ck("notes:search per rule", "FAIL FAIL FAIL PASS FAIL", ["mcp", "anthropic", "openai", "gemini", "observed64"].map(function (id) { return row(ns, id); }).join(" "));
+  ck("list open tickets fails every rule", "true", String(["mcp", "anthropic", "openai", "gemini", "observed64"].every(function (id) { return !e1.rows[5].results[id].pass; })));
+  var lg = e1.rows[6];
+  ck("70 x a per rule", "PASS PASS FAIL PASS FAIL", ["mcp", "anthropic", "openai", "gemini", "observed64"].map(function (id) { return row(lg, id); }).join(" "));
+  ck("70 x a reason under OpenAI", "length 70 > 64", lg.results.openai.reasons[0]);
+  ck("café_lookup length in code points", 11, e1.rows[7].len);
+  ck("Example 1 summary: names, portable, renamed, collisions", "8 3 5 1", [e1.summary.names, e1.summary.portable, e1.summary.rename, e1.summary.collisions].join(" "));
+  var e2 = analyse(["x".repeat(55), "search"], { prefix: "mcp__notes__" });
+  ck("Example 2: budget 64 - 12", 52, e2.budget);
+  ck("Example 2: map", "x".repeat(45) + "_5aa171 | search", e2.map.map(function (m) { return m.to; }).join(" | "));
+  ck("Example 2: prefixed length of search", 18, e2.rows[1].prefixedLen);
+  ck("Example 2: renamed long name fills the budget", 52, e2.map[0].to.length);
+  var e3 = analyse(["getUser", "DATA_EXPORT_v2", "admin.tools.list"], { prefix: "mcp__notes__" });
+  ck("Example 3: prefixed lengths", "19 26 28", e3.rows.map(function (r) { return r.prefixedLen; }).join(" "));
+  ck("Example 3: prefixed admin.tools.list under Anthropic and OpenAI", "FAIL FAIL", row(e3.rows[2], "anthropic") + " " + row(e3.rows[2], "openai"));
+  var P = function (id, s) { return check(s, profile(id)).pass ? "1" : "0"; };
+  var vec = ["admin.tools.list", "notes:search", "a".repeat(64), "a".repeat(65), "a".repeat(128), "a".repeat(129), ""];
+  ck("MCP rule over the vector", "1011100", vec.map(function (s) { return P("mcp", s); }).join(""));
+  ck("Anthropic rule over the vector", "0011100", vec.map(function (s) { return P("anthropic", s); }).join(""));
+  ck("OpenAI rule over the vector", "0010000", vec.map(function (s) { return P("openai", s); }).join(""));
+  ck("Gemini declaration rule over the vector", "1111100", vec.map(function (s) { return P("gemini", s); }).join(""));
+  ck("Observed 64 rule over the vector", "0010000", vec.map(function (s) { return P("observed64", s); }).join(""));
+  var shapes = [
+    JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: [{ name: "a" }, { name: "b.c" }] } }),
+    JSON.stringify({ tools: [{ name: "a" }, { name: "b.c" }] }),
+    JSON.stringify([{ name: "a", description: "<b>x</b>" }, { name: "b.c" }]),
+    JSON.stringify(["a", "b.c"]),
+    "a\n\n  b.c  \n"
+  ];
+  ck("All five input shapes yield the same names", "a,b.c|a,b.c|a,b.c|a,b.c|a,b.c", shapes.map(function (s) { return parseInput(s).names.join(","); }).join("|"));
+  ck("Concatenated pages are merged in order", "a,b,c", parseInput(JSON.stringify([{ tools: [{ name: "a" }, { name: "b" }] }, { result: { tools: [{ name: "c" }] } }])).names.join(","));
+  ck("nextCursor gives an INFO line", "true", String(parseInput(JSON.stringify({ tools: [{ name: "a" }], nextCursor: "x" })).info.length === 1));
+  ck("A tool without a string name is an input error with its index", "Tool at index 1 has no string \"name\"; skipped.", parseInput(JSON.stringify({ tools: [{ name: "a" }, { title: "b" }] })).errors[0]);
+  ck("Invalid JSON that looks like JSON is reported, not read as lines", "true", String(!!parseInput("{\"tools\": [").jsonError));
+  ck("JSON names are not trimmed", " pad", parseInput(JSON.stringify([" pad"])).names[0]);
+  var cs = analyse(["getUser", "getuser"], {});
+  ck("Case-only duplicates flagged INFO on both", "true", String(cs.rows.every(function (r) { return r.flags.some(function (f) { return f.kind === "CASE-ONLY"; }); })));
+  ck("Case-only duplicates are both kept", "getUser,getuser", cs.map.map(function (m) { return m.to; }).join(","));
+  var dp = analyse(["search", "search"], {});
+  ck("An exact duplicate gets _2", "search,search_2", dp.map.map(function (m) { return m.to; }).join(","));
+  ck("An exact duplicate is flagged DUPLICATE", "true", String(dp.rows[1].flags.some(function (f) { return f.kind === "DUPLICATE"; })));
+  ck("An astral character is one code point and one underscore", "x__y 4", sanitize("x😀_y") + " " + cpLen("x😀_y"));
+  var dots = analyse(["..."], {});
+  ck("A name of only invalid characters is renamed ___ and flagged", "___ true", dots.map[0].to + " " + String(dots.rows[0].flags.some(function (f) { return f.text.indexOf("carries no meaning") >= 0; })));
+  ck("A prefix leaving fewer than 8 characters builds no map", "true", String(analyse(["a"], { prefix: "p".repeat(60) }).errors[0].indexOf("fewer than 8") >= 0));
+  ck("A prefix with a dot is reported for the rules that reject it", "true", String(analyse(["a"], { prefix: "mcp__my.server__" }).prefixReport.some(function (x) { return x.indexOf("Anthropic") === 0; })));
+  ck("Plugin template resolves", "mcp__plugin_my-plugin_database-tools__", resolvePrefix("mcp__plugin_{plugin}_{server}__", "database-tools", "my-plugin"));
+  var t0 = Date.now(), big = []; for (var i = 0; i < 2000; i++) { big.push("tool." + (i % 1000)); }
+  var bg = analyse(big, {});
+  ck("2,000 names map without a collision", 2000, new Set(bg.map.map(function (m) { return m.to; })).size);
+  ck("2,000 names finish in under 2 seconds", "true", String(Date.now() - t0 < 2000));
+  var pk = analyse(["__proto__", "constructor", "toString", "a.b"], {});
+  ck("Names that are Object.prototype keys are analysed, not crashed on, and not flagged DUPLICATE", "__proto__,constructor,toString,a_b 0", pk.map.map(function (m) { return m.to; }).join(",") + " " + pk.rows.filter(function (r) { return r.flags.some(function (f) { return f.kind === "DUPLICATE"; }); }).length);
+  ck("The JSON map keeps \"__proto__\" and \"constructor\" as keys", "{\"__proto__\":\"__proto__\",\"constructor\":\"constructor\",\"toString\":\"toString\",\"a.b\":\"a_b\"}", JSON.stringify(mapObject(pk.map)));
+  ck("Concatenated pages ending without nextCursor give no INFO line", 0, parseInput(JSON.stringify([{ tools: [{ name: "a" }], nextCursor: "c1" }, { tools: [{ name: "b" }] }])).info.length);
+  var cg = []; for (var j = 0; j < 40; j++) { cg.push("q" + j.toString(2).padStart(6, "0").replace(/0/g, ".").replace(/1/g, ":")); }
+  ck("A large collision group lists at most five other names in a flag", "true", String(analyse(cg, {}).rows[0].flags.filter(function (f) { return f.kind === "COLLIDES-AFTER-RENAME"; }).every(function (f) { return / and \d+ more\.$/.test(f.text); })));
+  out.push({ name: "Positive control: an assertion written to fail", want: "1", got: "2", pass: false, control: true });
+  return out;
+}
+
+return { PROFILES: PROFILES, profile: profile, check: check, sanitize: sanitize, fnv1a: fnv1a, parseInput: parseInput, resolvePrefix: resolvePrefix, analyse: analyse, mapObject: mapObject, EXAMPLE: EXAMPLE, visible: visible, cpLen: cpLen, selfTest: selfTest };
+})();
+/* ==== CORE END ==== */
+(function () {
+"use strict";
+function $(id) { return document.getElementById(id); }
+function h(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  if (attrs) { Object.keys(attrs).forEach(function (k) { var v = attrs[k]; if (v === null || v === undefined || v === false) { return; } if (k === "class") { e.className = v; } else if (k === "text") { e.textContent = v; } else { e.setAttribute(k, v === true ? "" : String(v)); } }); }
+  (kids || []).forEach(function (c) { if (c === null || c === undefined) { return; } e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+  return e;
+}
+/* theme */
+var root = document.documentElement, tbtn = $("theme-toggle");
+function effective() { var t = root.getAttribute("data-theme"); if (t === "dark" || t === "light") { return t; } return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+function label() { tbtn.textContent = effective() === "dark" ? "Use light theme" : "Use dark theme"; }
+tbtn.addEventListener("click", function () {
+  var next = effective() === "dark" ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  try { localStorage.setItem("theme", next); } catch (e) {}
+  label();
+});
+label();
+
+var SRC = {
+  mcp: "SHOULD (advisory). 1 to 128 characters of A-Z a-z 0-9 _ - . Source: modelcontextprotocol.io specification 2025-11-25, server/tools.",
+  anthropic: "Documented: ^[a-zA-Z0-9_-]{1,128}$. Source: platform.claude.com define-tools.",
+  openai: "Documented: a-z A-Z 0-9 _ -, maximum 64. Source: OpenAI Chat Completions create reference.",
+  gemini: "Documented: a-z A-Z 0-9 _ : . -, maximum 128. FunctionCall.name and FunctionResponse.name are described without colons or dots. Source: ai.google.dev/api/generate-content.",
+  observed64: "Quoted in error strings in anthropics/claude-code#858 (filed 2025-04-23) and #68850 (filed 2026-06-16). Not a published rule."
+};
+var box = $("profiles");
+MN.PROFILES.forEach(function (p) {
+  if (p.id === "observed64") { box.appendChild(h("p", { class: "note" }, [h("strong", { text: "Observed in public bug reports (not a published rule)" })])); }
+  var id = "pf-" + p.id;
+  box.appendChild(h("div", { class: "prof" }, [
+    h("label", { class: "inline", for: id }, [h("input", { type: "checkbox", id: id, checked: true }), " " + p.name]),
+    h("span", { class: "meta", text: SRC[p.id] })
+  ]));
+});
+function selected() { return MN.PROFILES.filter(function (p) { return $("pf-" + p.id).checked; }).map(function (p) { return p.id; }); }
+
+var forceLines = false;
+function render() {
+  var text = $("in").value, msgs = $("msgs"), thead = document.querySelector("#out thead"), tbody = document.querySelector("#out tbody");
+  msgs.textContent = ""; thead.textContent = ""; tbody.textContent = ""; $("mapjson").textContent = ""; $("aslines").hidden = true;
+  var parsed = forceLines ? { names: text.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean), errors: [], info: [], mode: "plain lines (by request)" } : MN.parseInput(text);
+  if (parsed.empty) { $("status").textContent = "Paste a tools/list result or one name per line."; $("limit").textContent = ""; current = null; return; }
+  if (parsed.jsonError) {
+    msgs.appendChild(h("div", { class: "errbox" }, [h("p", { text: parsed.jsonError })]));
+    $("aslines").hidden = false;
+    $("status").textContent = "Input error: the text starts like JSON but does not parse.";
+    current = null; return;
+  }
+  parsed.errors.forEach(function (e) { msgs.appendChild(h("div", { class: "errbox" }, [h("p", { text: e })])); });
+  parsed.info.forEach(function (e) { msgs.appendChild(h("div", { class: "infobox" }, [h("p", { text: e })])); });
+  var sel = selected();
+  var prefix = MN.resolvePrefix($("tpl").value, $("server").value, $("plugin").value);
+  var res = MN.analyse(parsed.names, { profiles: sel, prefix: prefix });
+  $("limit").textContent = res.limit === null ? "" : "Strictest selected limit: " + res.limit + " characters.";
+  $("prefixnote").textContent = prefix ? "Resolved prefix: " + prefix + " (" + MN.cpLen(prefix) + " characters). Budget for each name: " + res.budget + ". " + (res.prefixReport.length ? "The prefix itself fails: " + res.prefixReport.join("; ") + "." : "The prefix itself passes every selected rule.") : "";
+  res.errors.forEach(function (e) { msgs.appendChild(h("div", { class: "errbox" }, [h("p", { text: e })])); });
+  if (!sel.length) { $("status").textContent = "Select at least one rule."; current = null; return; }
+  var cols = [h("th", { scope: "col", text: "#" }), h("th", { scope: "col", text: "Name" }), h("th", { scope: "col", text: "Length" })];
+  if (prefix) { cols.push(h("th", { scope: "col", text: "With prefix" })); }
+  sel.forEach(function (id) { cols.push(h("th", { scope: "col", text: MN.profile(id).name + (prefix ? " (with prefix)" : "") })); });
+  cols.push(h("th", { scope: "col", text: "Flags" }), h("th", { scope: "col", text: "Proposed name" }));
+  thead.appendChild(h("tr", null, cols));
+  var frag = document.createDocumentFragment();
+  res.rows.forEach(function (r) {
+    var tds = [h("td", { text: String(r.i) }), h("td", { class: "nm", text: MN.visible(r.name) }), h("td", { text: String(r.len) })];
+    if (prefix) { tds.push(h("td", { text: String(r.prefixedLen) })); }
+    sel.forEach(function (id) {
+      var c = r.results[id], why = c.reasons.join("; ");
+      if (id === "mcp" && /contains (a space|",")/.test(why)) { why += " (MCP: Tool names SHOULD NOT contain spaces, commas, or other special characters.)"; }
+      tds.push(h("td", { class: c.pass ? "ok" : "bad" }, [c.pass ? "PASS" : "FAIL", why ? h("span", { class: "why", text: " " + why }) : null]));
+    });
+    tds.push(h("td", { class: "fl" }, r.flags.length ? [h("ul", { class: "rownotes" }, r.flags.map(function (f) { return h("li", { text: f.kind + ": " + f.text }); }))] : []));
+    tds.push(h("td", { class: "nm", text: r.to === null ? "(none)" : (r.to === r.name ? r.to + " (kept)" : r.to) }));
+    frag.appendChild(h("tr", null, tds));
+  });
+  tbody.appendChild(frag);
+  current = res;
+  if (res.map.length) { $("mapjson").textContent = JSON.stringify(MN.mapObject(res.map), null, 2); }
+  var s = res.summary;
+  $("status").textContent = s.names + " name" + (s.names === 1 ? "" : "s") + " (" + parsed.mode + "). " + s.portable + " portable under all selected rules, " + s.rename + " need renaming, " + s.collisions + " with a duplicate or collision.";
+}
+var current = null;
+function copy(text) {
+  var done = function () { $("copystatus").textContent = "Copied."; };
+  var fail = function () { $("copystatus").textContent = "Copy is blocked here. Select the map text and copy it by hand."; };
+  try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, fail); } else { fail(); } } catch (e) { fail(); }
+}
+$("copy-obj").addEventListener("click", function () { if (current && current.map.length) { copy(JSON.stringify(MN.mapObject(current.map), null, 2)); } else { $("copystatus").textContent = "No map to copy yet."; } });
+$("copy-arr").addEventListener("click", function () { if (current && current.map.length) { copy(JSON.stringify(current.map, null, 2)); } else { $("copystatus").textContent = "No map to copy yet."; } });
+function run() { forceLines = false; render(); }
+$("run").addEventListener("click", run);
+$("aslines").addEventListener("click", function () { forceLines = true; render(); });
+$("example").addEventListener("click", function () { $("in").value = MN.EXAMPLE.join("\n"); run(); });
+$("clear").addEventListener("click", function () { $("in").value = ""; run(); $("in").focus(); });
+$("p-cc").addEventListener("click", function () { $("tpl").value = "mcp__{server}__"; if (!$("server").value) { $("server").value = "notes"; } run(); });
+$("p-plugin").addEventListener("click", function () { $("tpl").value = "mcp__plugin_{plugin}_{server}__"; if (!$("server").value) { $("server").value = "notes"; } if (!$("plugin").value) { $("plugin").value = "my-plugin"; } run(); });
+$("p-none").addEventListener("click", function () { $("tpl").value = ""; run(); });
+MN.PROFILES.forEach(function (p) { $("pf-" + p.id).addEventListener("change", run); });
+var timer = null;
+["in", "tpl", "server", "plugin"].forEach(function (id) { $(id).addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(run, 250); }); });
+
+function runSelfTest() {
+  var res, body = document.querySelector("#st-table tbody");
+  body.textContent = "";
+  try { res = MN.selfTest(); }
+  catch (e) { $("st-summary").textContent = "The self test crashed: " + String(e && e.message); return; }
+  var checks = res.filter(function (x) { return !x.control; }), passed = checks.filter(function (x) { return x.pass; }).length;
+  var ctrl = res.filter(function (x) { return x.control; })[0];
+  res.forEach(function (x) {
+    body.appendChild(h("tr", null, [h("td", { text: x.name }), h("td", null, [h("code", { text: x.want.length > 140 ? x.want.slice(0, 140) + "..." : x.want })]), h("td", null, [h("code", { text: x.got.length > 140 ? x.got.slice(0, 140) + "..." : x.got })]), h("td", { class: "res " + (x.control ? (x.pass ? "fail" : "pass") : (x.pass ? "pass" : "fail")), text: x.control ? (x.pass ? "NOT CAUGHT" : "CAUGHT") : (x.pass ? "PASS" : "FAIL") })]));
+  });
+  $("st-summary").textContent = passed + " of " + checks.length + " checks passed. Positive control: " + (ctrl && !ctrl.pass ? "caught, so the suite is live." : "NOT caught, so these results cannot be trusted.");
+}
+$("selftest").addEventListener("click", runSelfTest);
+
+$("in").value = MN.EXAMPLE.join("\n");
+run();
+runSelfTest();
+if (/[?&]selftest\b/.test(location.search)) { var d = document.querySelector("#st-table").closest("details"); if (d) { d.open = true; } $("st-summary").scrollIntoView(); }
+})();
+</script>
+</body>
+</html>

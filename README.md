@@ -94,7 +94,7 @@ Independent and unaffiliated with Anthropic, OpenAI, Google or the MCP project. 
 ## Related
 
 - https://github.com/0xelitesystem/mcp-header-annotation-validator
-- https://github.com/0xelitesystem/mcp-tool-poisoning-scanner
+- https://github.com/0xelitesystem/mcp-tool-description-scanner
 - https://github.com/0xelitesystem/json-schema-to-tool-definition
 
 ## License
